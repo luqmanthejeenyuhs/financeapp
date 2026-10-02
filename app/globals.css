@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: #0b0f17;
+  color: #e7eaf2;
+}
+
+body {
+  font-feature-settings: "tnum" 1, "cv11" 1;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signature element: the ticker tape. A continuous, evenly-paced scroll —
+   the one piece of motion on the page that's always running, because a
+   market never stops moving. Respects reduced-motion. */
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-track {
+  animation: ticker-scroll 38s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
+/* Hairline rule utility used throughout instead of card shadows/borders-radius-heavy UI */
+.rule {
+  border-color: #232c40;
+}
+
+::selection {
+  background: #c9a24b;
+  color: #0b0f17;
+}
+
+/* Focus visibility, kept even though the palette is dark */
+:focus-visible {
+  outline: 2px solid #c9a24b;
+  outline-offset: 2px;
+}

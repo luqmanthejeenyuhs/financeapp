@@ -186,4 +186,3 @@ data (prices, balances, timestamps) so figures read the way they would on
 a real trading terminal. The scrolling ticker tape in the header is the
 one signature motion element, used consistently across marketing and
 dashboard.
-"# financeapp" 

@@ -1,0 +1,142 @@
+// Prisma schema for AlphaTradersGroup.
+// Dev default is SQLite (zero setup); swap `provider`/`url` for Postgres in
+// production — see .env.example.
+//
+// Status/role fields below are plain Strings rather than Prisma `enum`s.
+// Prisma's SQLite connector needs a native (or WASM) schema engine to
+// validate enums, and on some machines that engine fails to download
+// (corporate firewalls, antivirus, flaky networks) and Prisma silently
+// falls back to a more limited WASM engine that rejects enums on SQLite
+// entirely ("the current connector does not support enums"). Plain
+// Strings sidestep that failure mode completely — SQLite has no native
+// enum type anyway, so this is exactly what Prisma would store under the
+// hood regardless. The valid values for each field are documented inline.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("CLIENT") // "CLIENT" | "SUPER_ADMIN" | "COMPLIANCE" | "FINANCE" | "SUPPORT"
+  status        String    @default("active") // "active" | "soft_banned" | "banned"
+  fundsFrozen   Boolean   @default(false)
+  maxDailyDeposit    Float?  // per-user override; null = use global setting
+  maxDailyWithdrawal Float?  // per-user override; null = use global setting
+  createdAt     DateTime  @default(now())
+
+  kyc           KycSubmission?
+  botSetting    BotSetting?
+  transactions  Transaction[]
+  brokerAccount BrokerAccount?
+  botTrades     BotTrade[]
+}
+
+/// Key/value store for platform-wide risk settings (daily limits, high-value
+/// alarm tier, etc), editable from /admin/settings. Read through
+/// lib/settings.ts, which supplies defaults for any key not yet set.
+model GlobalSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/// Append-only. Every admin/system action that touches money, KYC status,
+/// or account standing is written here and nothing in the app ever updates
+/// or deletes a row — see lib/audit.ts. This is the record you'd hand to
+/// an external auditor or use to investigate a rogue employee.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  // null when the system itself took the action
+  actorName  String   // "System" for automated actions
+  actorRole  String
+  action     String   // e.g. "kyc.approve", "transaction.auto_approve", "user.ban"
+  targetType String?  // "User" | "Transaction" | "KycSubmission" | "GlobalSetting"
+  targetId   String?
+  reason     String?
+  metadata   String?  // JSON-encoded extra context
+  createdAt  DateTime @default(now())
+}
+
+/// A client's connected OANDA account. In this scaffold there's one broker
+/// connection per user; the credentials referenced here are looked up
+/// server-side only (see lib/oanda.ts) — never sent to the browser.
+model BrokerAccount {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider    String   @default("OANDA")
+  environment String   @default("practice") // "practice" | "live"
+  accountId   String   // OANDA account id, e.g. 101-011-1234567-001
+  createdAt   DateTime @default(now())
+}
+
+model KycSubmission {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        String    @default("UNSUBMITTED") // "UNSUBMITTED" | "PENDING" | "APPROVED" | "REJECTED"
+  fullName      String?
+  dateOfBirth   DateTime?
+  country       String?
+  documentType  String?
+  documentPath  String?
+  reviewedAt    DateTime?
+  reviewedBy    String?
+  rejectReason  String?
+  submittedAt   DateTime  @default(now())
+}
+
+/// Deposit/withdrawal requests. Nothing in this model moves real money —
+/// see lib/payments/provider.ts. Status starts PENDING and is advanced by
+/// an admin (or a real payment-provider webhook once one is integrated).
+model Transaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // "DEPOSIT" | "WITHDRAWAL"
+  amount      Float
+  currency    String   @default("USD")
+  status      String   @default("PENDING") // "PENDING" | "APPROVED" | "REJECTED" | "COMPLETED"
+  method      String   @default("bank_transfer")
+  reference   String?
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BotSetting {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled      Boolean  @default(false)
+  strategy     String   @default("MA_CROSSOVER") // "MA_CROSSOVER"
+  instrument   String   @default("EUR_USD")
+  riskPercent  Float    @default(1.0)
+  maxOpenTrades Int     @default(1)
+  updatedAt    DateTime @updatedAt
+}
+
+/// A log entry every time the bot (or a manual dashboard action) places or
+/// closes an order — this is what powers the "Activity" table in
+/// /dashboard/bot, independent of OANDA's own trade history.
+model BotTrade {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instrument  String
+  side        String   // "buy" | "sell"
+  units       Int
+  reason      String   // e.g. "MA crossover: fast > slow"
+  oandaOrderId String?
+  status      String   @default("submitted") // "submitted" | "filled" | "rejected"
+  createdAt   DateTime @default(now())
+}
